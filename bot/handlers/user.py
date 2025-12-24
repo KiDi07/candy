@@ -66,9 +66,13 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
     order = await session.scalar(order_stmt)
     
     if order:
-        # Рецепт куплен - показываем контент
-        await callback.message.edit_text(
+        # Рецепт куплен - показываем контент с защитой
+        # Внимание: protect_content работает только при отправке НОВОГО сообщения, 
+        # при редактировании старого (edit_text) этот параметр игнорируется Telegram API.
+        await callback.message.delete()
+        await callback.message.answer(
             f"📖 {recipe.title}\n\n{recipe.description}\n\n--- КОНТЕНТ ---\n{recipe.content}",
+            protect_content=True,
             reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="⬅️ Назад в каталог", callback_data="catalog")]
             ])
