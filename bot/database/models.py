@@ -1,5 +1,5 @@
 from sqlalchemy import BigInteger, String, ForeignKey, Float, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -20,7 +20,23 @@ class Recipe(Base):
     title: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text)
     price: Mapped[float] = mapped_column(Float)
-    content: Mapped[str] = mapped_column(Text)  # Текст рецепта или ссылка
+    
+    # Связь с контентом
+    content: Mapped["RecipeContent"] = relationship(back_populates="recipe", cascade="all, delete-orphan")
+
+class RecipeContent(Base):
+    __tablename__ = 'recipe_contents'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recipe_id: Mapped[int] = mapped_column(ForeignKey('recipes.id'))
+    
+    recipe_text: Mapped[str | None] = mapped_column(Text)
+    video_url: Mapped[str | None] = mapped_column(Text)
+    ingredients: Mapped[str | None] = mapped_column(Text)
+    inventory: Mapped[str | None] = mapped_column(Text)
+    shops: Mapped[str | None] = mapped_column(Text)
+    
+    recipe: Mapped["Recipe"] = relationship(back_populates="content")
 
 class Order(Base):
     __tablename__ = 'orders'

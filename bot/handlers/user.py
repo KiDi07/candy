@@ -4,7 +4,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from bot.database.models import User, Recipe, Order
+from sqlalchemy.orm import selectinload
+from bot.database.models import User, Recipe, Order, RecipeContent
 from bot.keyboards.inline import get_recipes_keyboard, get_payment_keyboard, get_recipe_sections_kb
 from bot.utils import texts
 
@@ -69,9 +70,14 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
         await callback.answer("Ошибка в ID рецепта")
         return
 
-    # Получаем данные рецепта
-    recipe = await session.get(Recipe, recipe_id)
+    # Получаем данные рецепта с контентом
+    stmt = select(Recipe).where(Recipe.id == recipe_id).options(selectinload(Recipe.content))
+    recipe = await session.scalar(stmt)
     
+    if not recipe:
+        await callback.answer("Рецепт не найден")
+        return
+
     # Проверяем покупку
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     
@@ -87,8 +93,9 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
     # Если это тест (id=1) или куплено
     if order or recipe_id == 1:
         # Рецепт куплен - показываем сразу текст рецепта и меню разделов
+        recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
         await callback.message.edit_text(
-            texts.RED_VELVET_RECIPE,
+            recipe_text,
             reply_markup=get_recipe_sections_kb(recipe_id),
             parse_mode="HTML"
         )
@@ -102,8 +109,12 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
 @user_router.callback_query(F.data.startswith("recipe_text_"))
 async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
     recipe_id = int(callback.data.split("_")[2])
+    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
+    content = await session.scalar(stmt)
+    
+    text = content.recipe_text if content else "Текст рецепта скоро появится"
     await callback.message.edit_text(
-        texts.RED_VELVET_RECIPE,
+        text,
         reply_markup=get_recipe_sections_kb(recipe_id),
         parse_mode="HTML"
     )
@@ -112,8 +123,12 @@ async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession,
 @user_router.callback_query(F.data.startswith("recipe_video_"))
 async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
     recipe_id = int(callback.data.split("_")[2])
+    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
+    content = await session.scalar(stmt)
+    
+    video_url = content.video_url if content else "Видео скоро появится"
     await callback.message.edit_text(
-        f"🎥 <b>Видеоурок:</b>\n\n{texts.RED_VELVET_VIDEO}",
+        f"🎥 <b>Видеоурок:</b>\n\n{video_url}",
         reply_markup=get_recipe_sections_kb(recipe_id),
         parse_mode="HTML"
     )
@@ -122,8 +137,12 @@ async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession
 @user_router.callback_query(F.data.startswith("recipe_ingredients_"))
 async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
     recipe_id = int(callback.data.split("_")[2])
+    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
+    content = await session.scalar(stmt)
+    
+    ingredients = content.ingredients if content else "Список ингредиентов скоро появится"
     await callback.message.edit_text(
-        texts.RED_VELVET_INGREDIENTS,
+        ingredients,
         reply_markup=get_recipe_sections_kb(recipe_id),
         parse_mode="HTML"
     )
@@ -132,8 +151,12 @@ async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncS
 @user_router.callback_query(F.data.startswith("recipe_inventory_"))
 async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
     recipe_id = int(callback.data.split("_")[2])
+    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
+    content = await session.scalar(stmt)
+    
+    inventory = content.inventory if content else "Информация об инвентаре скоро появится"
     await callback.message.edit_text(
-        texts.RED_VELVET_INVENTORY,
+        inventory,
         reply_markup=get_recipe_sections_kb(recipe_id),
         parse_mode="HTML"
     )
@@ -142,8 +165,12 @@ async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSes
 @user_router.callback_query(F.data.startswith("recipe_shops_"))
 async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
     recipe_id = int(callback.data.split("_")[2])
+    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
+    content = await session.scalar(stmt)
+    
+    shops = content.shops if content else "Ссылки скоро появятся"
     await callback.message.edit_text(
-        f"🛒 <b>Ссылки на магазины:</b>\n\n{texts.RED_VELVET_SHOPS}",
+        shops,
         reply_markup=get_recipe_sections_kb(recipe_id),
         parse_mode="HTML"
     )
