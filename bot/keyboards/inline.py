@@ -26,3 +26,21 @@ def get_payment_keyboard(recipe_id):
     builder.row(InlineKeyboardButton(text="💎 Крипта", callback_data=f"pay_crypto_{recipe_id}"))
     builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="catalog"))
     return builder.as_markup()
+
+def get_recipe_sections_kb(recipe_id):
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📖 Рецепт", callback_data=f"recipe_text_{recipe_id}"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🎥 Видео", callback_data=f"recipe_video_{recipe_id}"),
+        InlineKeyboardButton(text="🛒 Ингредиенты", callback_data=f"recipe_ingredients_{recipe_id}"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔗 Магазины", callback_data=f"recipe_shops_{recipe_id}"),
+        InlineKeyboardButton(text="🛠 Инвентарь", callback_data=f"recipe_inventory_{recipe_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏠 Меню", callback_data="catalog")
+    )
+    return builder.as_markup()

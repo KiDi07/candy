@@ -1,11 +1,23 @@
 from aiogram import Router, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from bot.database.models import User, Recipe, Order
-from bot.keyboards.inline import get_recipes_keyboard, get_payment_keyboard
+from bot.keyboards.inline import get_recipes_keyboard, get_payment_keyboard, get_recipe_sections_kb
+from bot.utils import texts
 
 user_router = Router()
+
+@user_router.message(Command("test_menu"))
+async def cmd_test_menu(message: types.Message):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="Бисквит «Красный бархат»", callback_data="recipe_1"))
+    await message.answer(
+        "🛠 Тестовое меню рецептов:",
+        reply_markup=builder.as_markup()
+    )
 
 @user_router.message(CommandStart())
 async def cmd_start(message: types.Message, session: AsyncSession):
@@ -49,33 +61,36 @@ async def show_catalog(callback: types.CallbackQuery, session: AsyncSession):
         reply_markup=await get_catalog_kb(callback.from_user.id, session)
     )
 
-@user_router.callback_query(F.data.startswith("recipe_"))
+@user_router.callback_query(F.data.regexp(r"^recipe_\d+$"))
 async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
-    recipe_id = int(callback.data.split("_")[1])
-    
+    try:
+        recipe_id = int(callback.data.split("_")[1])
+    except (IndexError, ValueError):
+        await callback.answer("Ошибка в ID рецепта")
+        return
+
     # Получаем данные рецепта
     recipe = await session.get(Recipe, recipe_id)
-    user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     
     # Проверяем покупку
-    order_stmt = select(Order).where(
-        Order.user_id == user.id, 
-        Order.recipe_id == recipe_id,
-        Order.status == 'paid'
-    )
-    order = await session.scalar(order_stmt)
+    user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     
-    if order:
-        # Рецепт куплен - показываем контент с защитой
-        # Внимание: protect_content работает только при отправке НОВОГО сообщения, 
-        # при редактировании старого (edit_text) этот параметр игнорируется Telegram API.
-        await callback.message.delete()
-        await callback.message.answer(
-            f"📖 {recipe.title}\n\n{recipe.description}\n\n--- КОНТЕНТ ---\n{recipe.content}",
-            protect_content=True,
-            reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="⬅️ Назад в каталог", callback_data="catalog")]
-            ])
+    order = None
+    if user:
+        order_stmt = select(Order).where(
+            Order.user_id == user.id, 
+            Order.recipe_id == recipe_id,
+            Order.status == 'paid'
+        )
+        order = await session.scalar(order_stmt)
+    
+    # Если это тест (id=1) или куплено
+    if order or recipe_id == 1:
+        # Рецепт куплен - показываем сразу текст рецепта и меню разделов
+        await callback.message.edit_text(
+            texts.RED_VELVET_RECIPE,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode="HTML"
         )
     else:
         # Рецепт не куплен - предлагаем оплату
@@ -83,6 +98,56 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
             f"💰 {recipe.title}\n\n{recipe.description}\n\nЦена: {recipe.price}₽\n\nДля доступа к рецепту необходимо оплатить.",
             reply_markup=get_payment_keyboard(recipe_id)
         )
+
+@user_router.callback_query(F.data.startswith("recipe_text_"))
+async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+    recipe_id = int(callback.data.split("_")[2])
+    await callback.message.edit_text(
+        texts.RED_VELVET_RECIPE,
+        reply_markup=get_recipe_sections_kb(recipe_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@user_router.callback_query(F.data.startswith("recipe_video_"))
+async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+    recipe_id = int(callback.data.split("_")[2])
+    await callback.message.edit_text(
+        f"🎥 <b>Видеоурок:</b>\n\n{texts.RED_VELVET_VIDEO}",
+        reply_markup=get_recipe_sections_kb(recipe_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@user_router.callback_query(F.data.startswith("recipe_ingredients_"))
+async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+    recipe_id = int(callback.data.split("_")[2])
+    await callback.message.edit_text(
+        texts.RED_VELVET_INGREDIENTS,
+        reply_markup=get_recipe_sections_kb(recipe_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@user_router.callback_query(F.data.startswith("recipe_inventory_"))
+async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+    recipe_id = int(callback.data.split("_")[2])
+    await callback.message.edit_text(
+        texts.RED_VELVET_INVENTORY,
+        reply_markup=get_recipe_sections_kb(recipe_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@user_router.callback_query(F.data.startswith("recipe_shops_"))
+async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+    recipe_id = int(callback.data.split("_")[2])
+    await callback.message.edit_text(
+        f"🛒 <b>Ссылки на магазины:</b>\n\n{texts.RED_VELVET_SHOPS}",
+        reply_markup=get_recipe_sections_kb(recipe_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 @user_router.callback_query(F.data.startswith("pay_"))
 async def process_payment(callback: types.CallbackQuery, session: AsyncSession):
