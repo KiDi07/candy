@@ -1,7 +1,7 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 
-def get_recipes_keyboard(recipes, user_orders):
+def get_recipes_keyboard(recipes, user_orders, is_admin=False):
     builder = InlineKeyboardBuilder()
     
     # Создаем сет из ID купленных рецептов для быстрой проверки
@@ -16,6 +16,12 @@ def get_recipes_keyboard(recipes, user_orders):
         builder.row(InlineKeyboardButton(
             text=text,
             callback_data=f"recipe_{recipe.id}")
+        )
+    
+    if is_admin:
+        builder.row(InlineKeyboardButton(
+            text="⚙️ Панель администратора",
+            callback_data="admin_main")
         )
     
     return builder.as_markup()

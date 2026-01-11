@@ -4,6 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from bot.config.config import load_config
 from bot.handlers.user import user_router
+from bot.handlers.admin import admin_router
 from bot.database.models import async_main, async_session, Recipe
 from bot.middlewares.db import DatabaseMiddleware
 from sqlalchemy import select
@@ -46,6 +47,7 @@ async def main():
     dp.update.middleware(DatabaseMiddleware(session_pool=async_session))
 
     # Регистрация роутеров
+    dp.include_router(admin_router)
     dp.include_router(user_router)
 
     # Запуск действий при старте

@@ -1,15 +1,19 @@
+import logging
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from bot.database.models import User, Recipe, Order, RecipeContent
 from bot.keyboards.inline import get_recipes_keyboard, get_payment_keyboard, get_recipe_sections_kb
 from bot.utils import texts
+from bot.config.config import load_config
 
 user_router = Router()
+config = load_config()
 
 @user_router.message(Command("test_menu"))
 async def cmd_test_menu(message: types.Message):
@@ -53,7 +57,8 @@ async def get_catalog_kb(tg_id, session: AsyncSession):
         orders_stmt = select(Order).where(Order.user_id == user.id)
         orders = (await session.scalars(orders_stmt)).all()
     
-    return get_recipes_keyboard(recipes.all(), orders)
+    is_admin = tg_id in config.tg_bot.admin_ids
+    return get_recipes_keyboard(recipes.all(), orders, is_admin=is_admin)
 
 @user_router.callback_query(F.data == "catalog")
 async def show_catalog(callback: types.CallbackQuery, session: AsyncSession):
@@ -94,11 +99,18 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
     if order or recipe_id == 1:
         # Рецепт куплен - показываем сразу текст рецепта и меню разделов
         recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
-        await callback.message.edit_text(
-            recipe_text,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode="HTML"
-        )
+        try:
+            await callback.message.edit_text(
+                recipe_text,
+                reply_markup=get_recipe_sections_kb(recipe_id),
+                parse_mode="HTML"
+            )
+        except TelegramBadRequest:
+            await callback.message.edit_text(
+                recipe_text,
+                reply_markup=get_recipe_sections_kb(recipe_id),
+                parse_mode=None
+            )
     else:
         # Рецепт не куплен - предлагаем оплату
         await callback.message.edit_text(
@@ -113,11 +125,18 @@ async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession,
     content = await session.scalar(stmt)
     
     text = content.recipe_text if content else "Текст рецепта скоро появится"
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_recipe_sections_kb(recipe_id),
-        parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode=None
+        )
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_video_"))
@@ -127,11 +146,18 @@ async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession
     content = await session.scalar(stmt)
     
     video_url = content.video_url if content else "Видео скоро появится"
-    await callback.message.edit_text(
-        f"🎥 <b>Видеоурок:</b>\n\n{video_url}",
-        reply_markup=get_recipe_sections_kb(recipe_id),
-        parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            f"🎥 <b>Видеоурок:</b>\n\n{video_url}",
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        await callback.message.edit_text(
+            f"🎥 Видеоурок:\n\n{video_url}",
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode=None
+        )
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_ingredients_"))
@@ -141,11 +167,18 @@ async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncS
     content = await session.scalar(stmt)
     
     ingredients = content.ingredients if content else "Список ингредиентов скоро появится"
-    await callback.message.edit_text(
-        ingredients,
-        reply_markup=get_recipe_sections_kb(recipe_id),
-        parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            ingredients,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        await callback.message.edit_text(
+            ingredients,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode=None
+        )
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_inventory_"))
@@ -155,11 +188,18 @@ async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSes
     content = await session.scalar(stmt)
     
     inventory = content.inventory if content else "Информация об инвентаре скоро появится"
-    await callback.message.edit_text(
-        inventory,
-        reply_markup=get_recipe_sections_kb(recipe_id),
-        parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            inventory,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        await callback.message.edit_text(
+            inventory,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode=None
+        )
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_shops_"))
@@ -169,11 +209,18 @@ async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession
     content = await session.scalar(stmt)
     
     shops = content.shops if content else "Ссылки скоро появятся"
-    await callback.message.edit_text(
-        shops,
-        reply_markup=get_recipe_sections_kb(recipe_id),
-        parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            shops,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        await callback.message.edit_text(
+            shops,
+            reply_markup=get_recipe_sections_kb(recipe_id),
+            parse_mode=None
+        )
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("pay_"))
