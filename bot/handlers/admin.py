@@ -9,7 +9,8 @@ from sqlalchemy.orm import selectinload
 from bot.database.models import Recipe, RecipeContent
 from bot.keyboards.admin_kb import (
     get_admin_main_kb, get_admin_recipes_kb, 
-    get_recipe_edit_kb, get_cancel_kb
+    get_recipe_edit_kb, get_cancel_kb,
+    get_delete_confirm_kb
 )
 from bot.config.config import load_config
 
@@ -221,12 +222,27 @@ async def edit_field_save(message: types.Message, state: FSMContext, session: As
 # --- УДАЛЕНИЕ ---
 
 @admin_router.callback_query(F.data.startswith("admin_recipe_delete_"), F.from_user.id.in_(config.tg_bot.admin_ids))
-async def delete_recipe(callback: types.CallbackQuery, session: AsyncSession):
+async def delete_recipe_ask(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[3])
+    recipe = await session.get(Recipe, recipe_id)
+    
+    if not recipe:
+        await callback.answer("Рецепт не найден")
+        return
+        
+    await callback.message.edit_text(
+        f"⚠️ <b>Подтверждение удаления</b>\n\nВы уверены, что хотите удалить рецепт <b>«{recipe.title}»</b>?\n\nЭто действие необратимо!",
+        reply_markup=get_delete_confirm_kb(recipe_id),
+        parse_mode="HTML"
+    )
+
+@admin_router.callback_query(F.data.startswith("admin_recipe_confirm_delete_"), F.from_user.id.in_(config.tg_bot.admin_ids))
+async def delete_recipe_confirm(callback: types.CallbackQuery, session: AsyncSession):
+    recipe_id = int(callback.data.split("_")[4])
     # Каскадное удаление контента настроено в моделях (delete-orphan)
     await session.execute(delete(Recipe).where(Recipe.id == recipe_id))
     await session.commit()
-    await callback.answer("Рецепт удален", show_alert=True)
+    await callback.answer("✅ Рецепт успешно удален", show_alert=True)
     await admin_recipes_list(callback, session)
 
 # --- ОТМЕНА ---

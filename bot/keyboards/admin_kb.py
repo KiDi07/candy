@@ -40,3 +40,11 @@ def get_cancel_kb():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="admin_cancel"))
     return builder.as_markup()
+
+def get_delete_confirm_kb(recipe_id):
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"admin_recipe_confirm_delete_{recipe_id}"),
+        InlineKeyboardButton(text="❌ Нет, отмена", callback_data=f"admin_recipe_view_{recipe_id}")
+    )
+    return builder.as_markup()

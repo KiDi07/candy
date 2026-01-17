@@ -45,6 +45,7 @@ class Order(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
     recipe_id: Mapped[int] = mapped_column(ForeignKey('recipes.id'))
     status: Mapped[str] = mapped_column(String(20), default='pending')  # pending, paid
+    payment_id: Mapped[str | None] = mapped_column(String(128))
     payment_method: Mapped[str | None] = mapped_column(String(20))
 
 engine = create_async_engine(url='sqlite+aiosqlite:///db.sqlite3', echo=True)

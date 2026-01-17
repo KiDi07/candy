@@ -1,4 +1,7 @@
 import logging
+import uuid
+import requests
+import json
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -11,9 +14,13 @@ from bot.database.models import User, Recipe, Order, RecipeContent
 from bot.keyboards.inline import get_recipes_keyboard, get_payment_keyboard, get_recipe_sections_kb
 from bot.utils import texts
 from bot.config.config import load_config
+from yookassa import Payment, Configuration
 
 user_router = Router()
 config = load_config()
+
+# Явная настройка через класс Configuration
+Configuration.configure(config.yookassa.shop_id, config.yookassa.secret_key)
 
 @user_router.message(Command("test_menu"))
 async def cmd_test_menu(message: types.Message):
@@ -85,6 +92,7 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
 
     # Проверяем покупку
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
+    is_admin = callback.from_user.id in config.tg_bot.admin_ids
     
     order = None
     if user:
@@ -95,8 +103,8 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
         )
         order = await session.scalar(order_stmt)
     
-    # Если это тест (id=1) или куплено
-    if order or recipe_id == 1:
+    # Если куплено или пользователь - админ
+    if order or is_admin:
         # Рецепт куплен - показываем сразу текст рецепта и меню разделов
         recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
         try:
@@ -223,28 +231,111 @@ async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession
         )
     await callback.answer()
 
-@user_router.callback_query(F.data.startswith("pay_"))
+@user_router.callback_query(F.data.startswith("pay_ukassa_"))
 async def process_payment(callback: types.CallbackQuery, session: AsyncSession):
-    # Здесь будет логика инициализации платежа
-    data = callback.data.split("_")
-    method = data[1]
-    recipe_id = int(data[2])
+    recipe_id = int(callback.data.split("_")[2])
     
-    await callback.answer("Платежная система инициализируется...", show_alert=True)
-    # В реальности тут генерируем ссылку и отправляем пользователю
-    # Для теста можно просто "оплатить" по нажатию
+    stmt = select(Recipe).where(Recipe.id == recipe_id)
+    recipe = await session.scalar(stmt)
     
+    if not recipe:
+        await callback.answer("Рецепт не найден")
+        return
+
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     
-    # Создаем или обновляем заказ
+    # Создаем платеж в ЮKassa через прямой запрос (requests) для отладки
+    url = "https://api.yookassa.ru/v3/payments"
+    idempotency_key = str(uuid.uuid4())
+    
+    headers = {
+        "Idempotence-Key": idempotency_key,
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "amount": {
+            "value": f"{recipe.price:.2f}",
+            "currency": "RUB"
+        },
+        "confirmation": {
+            "type": "redirect",
+            "return_url": "https://t.me/agcandybot"
+        },
+        "capture": True,
+        "description": f"Оплата рецепта: {recipe.title}"
+    }
+    
+    try:
+        response = requests.post(
+            url,
+            auth=(config.yookassa.shop_id, config.yookassa.secret_key),
+            headers=headers,
+            data=json.dumps(payload),
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            logging.error(f"Yookassa error ({response.status_code}): {response.text}")
+            error_msg = response.text[:150]
+            await callback.answer(f"Ошибка ЮKassa ({response.status_code}): {error_msg}", show_alert=True)
+            return
+            
+        payment_data = response.json()
+        payment_id = payment_data.get("id")
+        confirmation_url = payment_data.get("confirmation", {}).get("confirmation_url")
+
+    except Exception as e:
+        logging.error(f"Request error: {e}")
+        await callback.answer(f"Ошибка сети: {str(e)[:150]}", show_alert=True)
+        return
+
+    # Сохраняем информацию о платеже
     new_order = Order(
         user_id=user.id,
         recipe_id=recipe_id,
-        status='paid', # Имитируем успешную оплату для теста
-        payment_method=method
+        status='pending',
+        payment_id=payment_id,
+        payment_method='ukassa'
     )
     session.add(new_order)
     await session.commit()
     
-    await callback.message.answer(f"✅ Оплата прошла успешно! Теперь вам доступен рецепт.")
-    await show_recipe(callback, session)
+    await callback.message.edit_text(
+        f"💰 Оплата рецепта: <b>{recipe.title}</b>\n\nСумма к оплате: {recipe.price}₽\n\nПосле оплаты нажмите кнопку «Проверить оплату»",
+        reply_markup=get_payment_keyboard(recipe_id, payment_url=confirmation_url),
+        parse_mode="HTML"
+    )
+
+@user_router.callback_query(F.data.startswith("check_pay_"))
+async def check_payment(callback: types.CallbackQuery, session: AsyncSession):
+    recipe_id = int(callback.data.split("_")[2])
+    
+    user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
+    
+    stmt = select(Order).where(
+        Order.user_id == user.id,
+        Order.recipe_id == recipe_id,
+        Order.status == 'pending'
+    ).order_by(Order.id.desc())
+    
+    order = await session.scalar(stmt)
+    
+    if not order or not order.payment_id:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
+
+    # Проверяем статус в ЮKassa
+    payment = Payment.find_one(order.payment_id)
+    
+    if payment.status == 'succeeded':
+        order.status = 'paid'
+        await session.commit()
+        await callback.answer("✅ Оплата подтверждена!", show_alert=True)
+        await show_recipe(callback, session)
+    elif payment.status == 'pending':
+        await callback.answer("⏳ Оплата еще в обработке. Попробуйте позже.", show_alert=True)
+    elif payment.status == 'canceled':
+        await callback.answer("❌ Платеж отменен.", show_alert=True)
+    else:
+        await callback.answer(f"Статус платежа: {payment.status}", show_alert=True)
