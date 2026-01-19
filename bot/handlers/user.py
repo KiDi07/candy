@@ -1,7 +1,6 @@
 import logging
 import uuid
-import requests
-import json
+import asyncio
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -20,6 +19,9 @@ user_router = Router()
 config = load_config()
 
 # Явная настройка через класс Configuration
+logging.info(f"Configuring YooKassa with Shop ID: {config.yookassa.shop_id}")
+if config.yookassa.secret_key:
+    logging.info(f"YooKassa Secret Key starts with: {config.yookassa.secret_key[:5]}...")
 Configuration.configure(config.yookassa.shop_id, config.yookassa.secret_key)
 
 @user_router.message(Command("test_menu"))
@@ -244,50 +246,39 @@ async def process_payment(callback: types.CallbackQuery, session: AsyncSession):
 
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     
-    # Создаем платеж в ЮKassa через прямой запрос (requests) для отладки
-    url = "https://api.yookassa.ru/v3/payments"
-    idempotency_key = str(uuid.uuid4())
-    
-    headers = {
-        "Idempotence-Key": idempotency_key,
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "amount": {
-            "value": f"{recipe.price:.2f}",
-            "currency": "RUB"
-        },
-        "confirmation": {
-            "type": "redirect",
-            "return_url": "https://t.me/agcandybot"
-        },
-        "capture": True,
-        "description": f"Оплата рецепта: {recipe.title}"
-    }
-    
+    if not user:
+        await callback.answer("Пользователь не найден в базе данных. Попробуйте /start", show_alert=True)
+        return
+
+    # Создаем платеж через SDK YooKassa
     try:
-        response = requests.post(
-            url,
-            auth=(config.yookassa.shop_id, config.yookassa.secret_key),
-            headers=headers,
-            data=json.dumps(payload),
-            timeout=10
+        idempotency_key = str(uuid.uuid4())
+        payment = Payment.create(
+            {
+                "amount": {
+                    "value": f"{recipe.price:.2f}",
+                    "currency": "RUB"
+                },
+                "confirmation": {
+                    "type": "redirect",
+                    "return_url": "https://t.me/agcandybot"
+                },
+                "capture": True,
+                "description": f"Оплата рецепта: {recipe.title}"
+            },
+            idempotency_key
         )
         
-        if response.status_code != 200:
-            logging.error(f"Yookassa error ({response.status_code}): {response.text}")
-            error_msg = response.text[:150]
-            await callback.answer(f"Ошибка ЮKassa ({response.status_code}): {error_msg}", show_alert=True)
-            return
-            
-        payment_data = response.json()
-        payment_id = payment_data.get("id")
-        confirmation_url = payment_data.get("confirmation", {}).get("confirmation_url")
+        payment_id = payment.id
+        confirmation_url = payment.confirmation.confirmation_url
 
     except Exception as e:
-        logging.error(f"Request error: {e}")
-        await callback.answer(f"Ошибка сети: {str(e)[:150]}", show_alert=True)
+        logging.error(f"Yookassa SDK error: {e}")
+        if hasattr(e, 'message'):
+            logging.error(f"Yookassa error message: {e.message}")
+        if hasattr(e, 'code'):
+            logging.error(f"Yookassa error code: {e.code}")
+        await callback.answer(f"Ошибка ЮKassa: {str(e)[:150]}", show_alert=True)
         return
 
     # Сохраняем информацию о платеже
@@ -313,6 +304,10 @@ async def check_payment(callback: types.CallbackQuery, session: AsyncSession):
     
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     
+    if not user:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+
     stmt = select(Order).where(
         Order.user_id == user.id,
         Order.recipe_id == recipe_id,
@@ -325,8 +320,16 @@ async def check_payment(callback: types.CallbackQuery, session: AsyncSession):
         await callback.answer("Заказ не найден", show_alert=True)
         return
 
+    # Небольшая задержка перед проверкой для стабильности в тесте
+    await asyncio.sleep(1)
+
     # Проверяем статус в ЮKassa
-    payment = Payment.find_one(order.payment_id)
+    try:
+        payment = Payment.find_one(order.payment_id)
+    except Exception as e:
+        logging.error(f"Yookassa find error: {e}")
+        await callback.answer("Ошибка при проверке платежа", show_alert=True)
+        return
     
     if payment.status == 'succeeded':
         order.status = 'paid'
