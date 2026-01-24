@@ -1,30 +1,34 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 
-def get_recipes_keyboard(recipes, user_orders, is_admin=False):
+def get_recipes_keyboard(recipes, user_orders=None, is_free=False, is_admin=False):
     builder = InlineKeyboardBuilder()
     
     # Создаем сет из ID купленных рецептов для быстрой проверки
-    paid_recipe_ids = {order.recipe_id for order in user_orders if order.status == 'paid'}
+    paid_recipe_ids = set()
+    if user_orders:
+        paid_recipe_ids = {order.recipe_id for order in user_orders if order.status == 'paid'}
     
     for recipe in recipes:
-        # Для админов все рецепты помечены как купленные
-        if is_admin or recipe.id in paid_recipe_ids:
-            text = f"✅ {recipe.title}"
+        if is_free:
+            # Для бесплатных рецептов кнопка - это прямая ссылка на пост
+            builder.row(InlineKeyboardButton(
+                text=f"{recipe.title}",
+                url=recipe.external_link if recipe.external_link else "https://t.me"
+            ))
         else:
-            text = f"💰 {recipe.title} ({recipe.price}₽)"
-        
-        builder.row(InlineKeyboardButton(
-            text=text,
-            callback_data=f"recipe_{recipe.id}")
-        )
+            # Платные рецепты
+            if is_admin or recipe.id in paid_recipe_ids:
+                text = f"✅ {recipe.title}"
+            else:
+                text = f"💰 {recipe.title} ({recipe.price}₽)"
+            
+            builder.row(InlineKeyboardButton(
+                text=text,
+                callback_data=f"recipe_{recipe.id}")
+            )
     
-    if is_admin:
-        builder.row(InlineKeyboardButton(
-            text="⚙️ Панель администратора",
-            callback_data="admin_main")
-        )
-    
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="catalog"))
     return builder.as_markup()
 
 def get_payment_keyboard(recipe_id, payment_url=None):
@@ -34,7 +38,7 @@ def get_payment_keyboard(recipe_id, payment_url=None):
         builder.row(InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_pay_{recipe_id}"))
     else:
         builder.row(InlineKeyboardButton(text="💳 Перейти к оплате", callback_data=f"pay_ukassa_{recipe_id}"))
-    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="catalog"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="category_paid"))
     return builder.as_markup()
 
 def get_recipe_sections_kb(recipe_id):
@@ -51,6 +55,22 @@ def get_recipe_sections_kb(recipe_id):
         InlineKeyboardButton(text="🛠 Инвентарь", callback_data=f"recipe_inventory_{recipe_id}")
     )
     builder.row(
-        InlineKeyboardButton(text="🏠 Меню", callback_data="catalog")
+        InlineKeyboardButton(text="🏠 К списку", callback_data="category_paid")
     )
+    return builder.as_markup()
+
+def get_main_menu_kb(is_admin=False):
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🎁 Бесплатные рецепты", callback_data="category_free"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="💎 Платные рецепты", callback_data="category_paid")
+    )
+    
+    if is_admin:
+        builder.row(
+            InlineKeyboardButton(text="⚙️ Панель администратора", callback_data="admin_main")
+        )
+        
     return builder.as_markup()

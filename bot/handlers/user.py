@@ -9,8 +9,11 @@ from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from bot.database.models import User, Recipe, Order, RecipeContent
-from bot.keyboards.inline import get_recipes_keyboard, get_payment_keyboard, get_recipe_sections_kb
+from bot.database.models import User, Recipe, Order, RecipeContent, FreeRecipe
+from bot.keyboards.inline import (
+    get_recipes_keyboard, get_payment_keyboard, 
+    get_recipe_sections_kb, get_main_menu_kb
+)
 from bot.utils import texts
 from bot.config.config import load_config
 from yookassa import Payment, Configuration
@@ -24,15 +27,7 @@ if config.yookassa.secret_key:
     logging.info(f"YooKassa Secret Key starts with: {config.yookassa.secret_key[:5]}...")
 Configuration.configure(config.yookassa.shop_id, config.yookassa.secret_key)
 
-@user_router.message(Command("test_menu"))
-async def cmd_test_menu(message: types.Message):
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="Бисквит «Красный бархат»", callback_data="recipe_1"))
-    await message.answer(
-        "🛠 Тестовое меню рецептов:",
-        reply_markup=builder.as_markup()
-    )
-
+@user_router.message(Command("menu"))
 @user_router.message(CommandStart())
 async def cmd_start(message: types.Message, session: AsyncSession):
     # Регистрация пользователя в БД
@@ -40,305 +35,126 @@ async def cmd_start(message: types.Message, session: AsyncSession):
     user = await session.scalar(stmt)
     
     if not user:
-        user = User(
-            tg_id=message.from_user.id,
-            username=message.from_user.username,
-            full_name=message.from_user.full_name
-        )
-        session.add(user)
-        await session.commit()
+        user = User(tg_id=message.from_user.id, username=message.from_user.username, full_name=message.from_user.full_name)
+        session.add(user); await session.commit()
     
-    await message.answer(
-        f"Привет, {message.from_user.full_name}! Выбери рецепт из каталога:",
-        reply_markup=await get_catalog_kb(message.from_user.id, session)
-    )
-
-async def get_catalog_kb(tg_id, session: AsyncSession):
-    # Получаем все рецепты
-    recipes = await session.scalars(select(Recipe))
-    
-    # Получаем заказы пользователя
-    user_stmt = select(User).where(User.tg_id == tg_id)
-    user = await session.scalar(user_stmt)
-    
-    orders = []
-    if user:
-        orders_stmt = select(Order).where(Order.user_id == user.id)
-        orders = (await session.scalars(orders_stmt)).all()
-    
-    is_admin = tg_id in config.tg_bot.admin_ids
-    return get_recipes_keyboard(recipes.all(), orders, is_admin=is_admin)
+    is_admin = message.from_user.id in config.tg_bot.admin_ids
+    await message.answer(f"Привет, {message.from_user.full_name}! Выбери категорию:", reply_markup=get_main_menu_kb(is_admin=is_admin))
 
 @user_router.callback_query(F.data == "catalog")
 async def show_catalog(callback: types.CallbackQuery, session: AsyncSession):
-    await callback.message.edit_text(
-        "Выбери рецепт из каталога:",
-        reply_markup=await get_catalog_kb(callback.from_user.id, session)
-    )
+    is_admin = callback.from_user.id in config.tg_bot.admin_ids
+    await callback.message.edit_text("Выбери категорию:", reply_markup=get_main_menu_kb(is_admin=is_admin))
+
+@user_router.callback_query(F.data == "category_free")
+async def show_free_recipes(callback: types.CallbackQuery, session: AsyncSession):
+    recipes = await session.scalars(select(FreeRecipe))
+    await callback.message.edit_text("🎁 Бесплатные рецепты:", reply_markup=get_recipes_keyboard(recipes.all(), is_free=True))
+
+@user_router.callback_query(F.data == "category_paid")
+async def show_paid_recipes(callback: types.CallbackQuery, session: AsyncSession):
+    recipes = await session.scalars(select(Recipe))
+    user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
+    orders = []
+    if user:
+        orders = (await session.scalars(select(Order).where(Order.user_id == user.id))).all()
+    
+    is_admin = callback.from_user.id in config.tg_bot.admin_ids
+    await callback.message.edit_text("💎 Платные рецепты:", reply_markup=get_recipes_keyboard(recipes.all(), user_orders=orders, is_free=False, is_admin=is_admin))
 
 @user_router.callback_query(F.data.regexp(r"^recipe_\d+$"))
 async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
-    try:
-        recipe_id = int(callback.data.split("_")[1])
-    except (IndexError, ValueError):
-        await callback.answer("Ошибка в ID рецепта")
-        return
-
-    # Получаем данные рецепта с контентом
+    recipe_id = int(callback.data.split("_")[1])
     stmt = select(Recipe).where(Recipe.id == recipe_id).options(selectinload(Recipe.content))
     recipe = await session.scalar(stmt)
     
-    if not recipe:
-        await callback.answer("Рецепт не найден")
-        return
+    if not recipe: await callback.answer("Рецепт не найден"); return
 
-    # Проверяем покупку
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     is_admin = callback.from_user.id in config.tg_bot.admin_ids
-    
     order = None
     if user:
-        order_stmt = select(Order).where(
-            Order.user_id == user.id, 
-            Order.recipe_id == recipe_id,
-            Order.status == 'paid'
-        )
-        order = await session.scalar(order_stmt)
+        order = await session.scalar(select(Order).where(Order.user_id == user.id, Order.recipe_id == recipe_id, Order.status == 'paid'))
     
-    # Если куплено или пользователь - админ
     if order or is_admin:
-        # Рецепт куплен - показываем сразу текст рецепта и меню разделов
         recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
-        try:
-            await callback.message.edit_text(
-                recipe_text,
-                reply_markup=get_recipe_sections_kb(recipe_id),
-                parse_mode="HTML"
-            )
-        except TelegramBadRequest:
-            await callback.message.edit_text(
-                recipe_text,
-                reply_markup=get_recipe_sections_kb(recipe_id),
-                parse_mode=None
-            )
+        try: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
+        except: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     else:
-        # Рецепт не куплен - предлагаем оплату
-        await callback.message.edit_text(
-            f"💰 {recipe.title}\n\n{recipe.description}\n\nЦена: {recipe.price}₽\n\nДля доступа к рецепту необходимо оплатить.",
-            reply_markup=get_payment_keyboard(recipe_id)
-        )
+        await callback.message.edit_text(f"💰 {recipe.title}\n\n{recipe.description}\n\nЦена: {recipe.price}₽", reply_markup=get_payment_keyboard(recipe_id))
 
 @user_router.callback_query(F.data.startswith("recipe_text_"))
-async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
-    content = await session.scalar(stmt)
-    
+    content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     text = content.recipe_text if content else "Текст рецепта скоро появится"
-    try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode="HTML"
-        )
-    except TelegramBadRequest:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode=None
-        )
+    try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_video_"))
-async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
-    content = await session.scalar(stmt)
-    
+    content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     video_url = content.video_url if content else "Видео скоро появится"
-    try:
-        await callback.message.edit_text(
-            f"🎥 <b>Видеоурок:</b>\n\n{video_url}",
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode="HTML"
-        )
-    except TelegramBadRequest:
-        await callback.message.edit_text(
-            f"🎥 Видеоурок:\n\n{video_url}",
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode=None
-        )
+    try: await callback.message.edit_text(f"🎥 <b>Видео:</b>\n\n{video_url}", reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
+    except: await callback.message.edit_text(f"🎥 Видео:\n\n{video_url}", reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_ingredients_"))
-async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
-    content = await session.scalar(stmt)
-    
-    ingredients = content.ingredients if content else "Список ингредиентов скоро появится"
-    try:
-        await callback.message.edit_text(
-            ingredients,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode="HTML"
-        )
-    except TelegramBadRequest:
-        await callback.message.edit_text(
-            ingredients,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode=None
-        )
+    content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
+    text = content.ingredients if content else "Ингредиенты скоро появятся"
+    try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_inventory_"))
-async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
-    content = await session.scalar(stmt)
-    
-    inventory = content.inventory if content else "Информация об инвентаре скоро появится"
-    try:
-        await callback.message.edit_text(
-            inventory,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode="HTML"
-        )
-    except TelegramBadRequest:
-        await callback.message.edit_text(
-            inventory,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode=None
-        )
+    content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
+    text = content.inventory if content else "Инвентарь скоро появится"
+    try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_shops_"))
-async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession, **kwargs):
+async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    stmt = select(RecipeContent).where(RecipeContent.recipe_id == recipe_id)
-    content = await session.scalar(stmt)
-    
-    shops = content.shops if content else "Ссылки скоро появятся"
-    try:
-        await callback.message.edit_text(
-            shops,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode="HTML"
-        )
-    except TelegramBadRequest:
-        await callback.message.edit_text(
-            shops,
-            reply_markup=get_recipe_sections_kb(recipe_id),
-            parse_mode=None
-        )
+    content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
+    text = content.shops if content else "Ссылки скоро появятся"
+    try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("pay_ukassa_"))
 async def process_payment(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    
-    stmt = select(Recipe).where(Recipe.id == recipe_id)
-    recipe = await session.scalar(stmt)
-    
-    if not recipe:
-        await callback.answer("Рецепт не найден")
-        return
-
+    recipe = await session.get(Recipe, recipe_id)
+    if not recipe: await callback.answer("Не найден"); return
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
-    
-    if not user:
-        await callback.answer("Пользователь не найден в базе данных. Попробуйте /start", show_alert=True)
-        return
+    if not user: await callback.answer("Попробуйте /start", show_alert=True); return
 
-    # Создаем платеж через SDK YooKassa
     try:
-        idempotency_key = str(uuid.uuid4())
-        payment = Payment.create(
-            {
-                "amount": {
-                    "value": f"{recipe.price:.2f}",
-                    "currency": "RUB"
-                },
-                "confirmation": {
-                    "type": "redirect",
-                    "return_url": "https://t.me/agcandybot"
-                },
-                "capture": True,
-                "description": f"Оплата рецепта: {recipe.title}"
-            },
-            idempotency_key
-        )
-        
-        payment_id = payment.id
-        confirmation_url = payment.confirmation.confirmation_url
-
+        payment = Payment.create({"amount": {"value": f"{recipe.price:.2f}", "currency": "RUB"}, "confirmation": {"type": "redirect", "return_url": "https://t.me/agcandybot"}, "capture": True, "description": f"Рецепт: {recipe.title}"}, str(uuid.uuid4()))
+        new_order = Order(user_id=user.id, recipe_id=recipe_id, status='pending', payment_id=payment.id, payment_method='ukassa')
+        session.add(new_order); await session.commit()
+        await callback.message.edit_text(f"💰 {recipe.title}\n\nК оплате: {recipe.price}₽", reply_markup=get_payment_keyboard(recipe_id, payment_url=payment.confirmation.confirmation_url), parse_mode="HTML")
     except Exception as e:
-        logging.error(f"Yookassa SDK error: {e}")
-        if hasattr(e, 'message'):
-            logging.error(f"Yookassa error message: {e.message}")
-        if hasattr(e, 'code'):
-            logging.error(f"Yookassa error code: {e.code}")
-        await callback.answer(f"Ошибка ЮKassa: {str(e)[:150]}", show_alert=True)
-        return
-
-    # Сохраняем информацию о платеже
-    new_order = Order(
-        user_id=user.id,
-        recipe_id=recipe_id,
-        status='pending',
-        payment_id=payment_id,
-        payment_method='ukassa'
-    )
-    session.add(new_order)
-    await session.commit()
-    
-    await callback.message.edit_text(
-        f"💰 Оплата рецепта: <b>{recipe.title}</b>\n\nСумма к оплате: {recipe.price}₽\n\nПосле оплаты нажмите кнопку «Проверить оплату»",
-        reply_markup=get_payment_keyboard(recipe_id, payment_url=confirmation_url),
-        parse_mode="HTML"
-    )
+        logging.error(e); await callback.answer("Ошибка ЮKassa", show_alert=True)
 
 @user_router.callback_query(F.data.startswith("check_pay_"))
 async def check_payment(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[2])
-    
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
+    order = await session.scalar(select(Order).where(Order.user_id == user.id, Order.recipe_id == recipe_id, Order.status == 'pending').order_by(Order.id.desc()))
+    if not order: await callback.answer("Заказ не найден", show_alert=True); return
     
-    if not user:
-        await callback.answer("Пользователь не найден", show_alert=True)
-        return
-
-    stmt = select(Order).where(
-        Order.user_id == user.id,
-        Order.recipe_id == recipe_id,
-        Order.status == 'pending'
-    ).order_by(Order.id.desc())
-    
-    order = await session.scalar(stmt)
-    
-    if not order or not order.payment_id:
-        await callback.answer("Заказ не найден", show_alert=True)
-        return
-
-    # Небольшая задержка перед проверкой для стабильности в тесте
     await asyncio.sleep(1)
-
-    # Проверяем статус в ЮKassa
     try:
         payment = Payment.find_one(order.payment_id)
-    except Exception as e:
-        logging.error(f"Yookassa find error: {e}")
-        await callback.answer("Ошибка при проверке платежа", show_alert=True)
-        return
-    
-    if payment.status == 'succeeded':
-        order.status = 'paid'
-        await session.commit()
-        await callback.answer("✅ Оплата подтверждена!", show_alert=True)
-        await show_recipe(callback, session)
-    elif payment.status == 'pending':
-        await callback.answer("⏳ Оплата еще в обработке. Попробуйте позже.", show_alert=True)
-    elif payment.status == 'canceled':
-        await callback.answer("❌ Платеж отменен.", show_alert=True)
-    else:
-        await callback.answer(f"Статус платежа: {payment.status}", show_alert=True)
+        if payment.status == 'succeeded':
+            order.status = 'paid'; await session.commit(); await callback.answer("✅ Оплачено!", show_alert=True); await show_recipe(callback, session)
+        else: await callback.answer(f"Статус: {payment.status}", show_alert=True)
+    except: await callback.answer("Ошибка проверки", show_alert=True)

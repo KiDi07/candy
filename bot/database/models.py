@@ -19,10 +19,17 @@ class Recipe(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text)
-    price: Mapped[float] = mapped_column(Float)
+    price: Mapped[float] = mapped_column(Float, default=0.0)
     
     # Связь с контентом
     content: Mapped["RecipeContent"] = relationship(back_populates="recipe", cascade="all, delete-orphan")
+
+class FreeRecipe(Base):
+    __tablename__ = 'free_recipes'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(128))
+    external_link: Mapped[str] = mapped_column(Text)
 
 class RecipeContent(Base):
     __tablename__ = 'recipe_contents'
