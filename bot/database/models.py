@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, String, ForeignKey, Float, Text
+from sqlalchemy import BigInteger, String, ForeignKey, Float, Text, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 
@@ -12,6 +12,8 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, unique=True)
     username: Mapped[str | None] = mapped_column(String(32))
     full_name: Mapped[str] = mapped_column(String(128))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_privileged: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class Recipe(Base):
     __tablename__ = 'recipes'
