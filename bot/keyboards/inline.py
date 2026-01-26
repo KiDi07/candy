@@ -1,7 +1,7 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 
-def get_recipes_keyboard(recipes, user_orders=None, is_free=False, is_admin=False):
+def get_recipes_keyboard(recipes, user_orders=None, is_free=False, is_admin=False, is_privileged=False):
     builder = InlineKeyboardBuilder()
     
     # Создаем сет из ID купленных рецептов для быстрой проверки
@@ -18,7 +18,7 @@ def get_recipes_keyboard(recipes, user_orders=None, is_free=False, is_admin=Fals
             ))
         else:
             # Платные рецепты
-            if is_admin or recipe.id in paid_recipe_ids:
+            if is_admin or is_privileged or recipe.id in paid_recipe_ids:
                 text = f"✅ {recipe.title}"
             else:
                 text = f"💰 {recipe.title} ({recipe.price}₽)"

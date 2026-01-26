@@ -13,8 +13,11 @@ from bot.keyboards.admin_kb import (
     get_delete_confirm_kb, get_recipe_type_kb
 )
 from bot.config.config import load_config
+from bot.filters.role_filters import IsAdminFilter
 
 admin_router = Router()
+admin_router.message.filter(IsAdminFilter())
+admin_router.callback_query.filter(IsAdminFilter())
 config = load_config()
 
 class AddRecipe(StatesGroup):
@@ -32,25 +35,25 @@ class AddRecipe(StatesGroup):
 class EditRecipe(StatesGroup):
     field_value = State()
 
-@admin_router.message(Command("admin"), F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.message(Command("admin"))
 async def admin_start(message: types.Message):
     await message.answer("👋 Добро пожаловать в админ-панель!", reply_markup=get_admin_main_kb())
 
-@admin_router.callback_query(F.data == "admin_main", F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data == "admin_main")
 async def admin_main_cb(callback: types.CallbackQuery):
     await callback.message.edit_text("👋 Добро пожаловать в админ-панель!", reply_markup=get_admin_main_kb())
 
-@admin_router.callback_query(F.data == "admin_recipes_list_paid", F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data == "admin_recipes_list_paid")
 async def admin_recipes_list_paid(callback: types.CallbackQuery, session: AsyncSession):
     recipes = await session.scalars(select(Recipe))
     await callback.message.edit_text("📜 Список платных рецептов:", reply_markup=get_admin_recipes_kb(recipes.all(), is_free=False))
 
-@admin_router.callback_query(F.data == "admin_recipes_list_free", F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data == "admin_recipes_list_free")
 async def admin_recipes_list_free(callback: types.CallbackQuery, session: AsyncSession):
     recipes = await session.scalars(select(FreeRecipe))
     await callback.message.edit_text("🎁 Список бесплатных рецептов:", reply_markup=get_admin_recipes_kb(recipes.all(), is_free=True))
 
-@admin_router.callback_query(F.data.startswith("admin_recipe_view_paid_"), F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data.startswith("admin_recipe_view_paid_"))
 async def admin_recipe_view_paid(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[4])
     stmt = select(Recipe).where(Recipe.id == recipe_id).options(selectinload(Recipe.content))
@@ -58,14 +61,14 @@ async def admin_recipe_view_paid(callback: types.CallbackQuery, session: AsyncSe
     text = (f"<b>Платный:</b> {recipe.title}\n<b>Цена:</b> {recipe.price}₽\n<b>Описание:</b> {recipe.description[:100]}...\n\nВыбор поля:")
     await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=False))
 
-@admin_router.callback_query(F.data.startswith("admin_recipe_view_free_"), F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data.startswith("admin_recipe_view_free_"))
 async def admin_recipe_view_free(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[4])
     recipe = await session.get(FreeRecipe, recipe_id)
     text = (f"<b>Бесплатный:</b> {recipe.title}\n<b>Ссылка:</b> {recipe.external_link}\n\nВыбор поля:")
     await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=True))
 
-@admin_router.callback_query(F.data == "admin_recipe_add", F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data == "admin_recipe_add")
 async def add_recipe_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AddRecipe.type); await callback.message.edit_text("Тип рецепта:", reply_markup=get_recipe_type_kb())
 
@@ -128,13 +131,13 @@ async def add_shops(message: types.Message, state: FSMContext, session: AsyncSes
     session.add(RecipeContent(recipe_id=new_r.id, recipe_text=data['recipe_text'], video_url=data['video_url'], ingredients=data['ingredients'], inventory=data['inventory'], shops=message.text))
     await session.commit(); await state.clear(); await message.answer("✅ Добавлено!", reply_markup=get_admin_main_kb())
 
-@admin_router.callback_query(F.data.startswith("edit_paid_"), F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data.startswith("edit_paid_"))
 async def edit_paid(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     data = callback.data.replace("edit_paid_", "").rsplit("_", 1)
     await state.update_data(edit_recipe_id=int(data[1]), edit_field=data[0], edit_type='paid')
     await state.set_state(EditRecipe.field_value); await callback.message.edit_text("Введите новое значение:", reply_markup=get_cancel_kb())
 
-@admin_router.callback_query(F.data.startswith("edit_free_"), F.from_user.id.in_(config.tg_bot.admin_ids))
+@admin_router.callback_query(F.data.startswith("edit_free_"))
 async def edit_free(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     data = callback.data.replace("edit_free_", "").rsplit("_", 1)
     await state.update_data(edit_recipe_id=int(data[1]), edit_field=data[0], edit_type='free')

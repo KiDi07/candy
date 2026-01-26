@@ -37,12 +37,13 @@ async def cmd_start(message: types.Message, session: AsyncSession):
         user = User(tg_id=message.from_user.id, username=message.from_user.username, full_name=message.from_user.full_name)
         session.add(user); await session.commit()
     
-    is_admin = message.from_user.id in config.tg_bot.admin_ids
+    is_admin = user.is_admin
     await message.answer(f"Привет, {message.from_user.full_name}! Выбери категорию:", reply_markup=get_main_menu_kb(is_admin=is_admin))
 
 @user_router.callback_query(F.data == "catalog")
 async def show_catalog(callback: types.CallbackQuery, session: AsyncSession):
-    is_admin = callback.from_user.id in config.tg_bot.admin_ids
+    user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
+    is_admin = user.is_admin if user else False
     await callback.message.edit_text("Выбери категорию:", reply_markup=get_main_menu_kb(is_admin=is_admin))
 
 @user_router.callback_query(F.data == "category_free")
@@ -55,11 +56,14 @@ async def show_paid_recipes(callback: types.CallbackQuery, session: AsyncSession
     recipes = await session.scalars(select(Recipe))
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     orders = []
+    is_admin = False
+    is_privileged = False
     if user:
         orders = (await session.scalars(select(Order).where(Order.user_id == user.id))).all()
+        is_admin = user.is_admin
+        is_privileged = user.is_privileged
     
-    is_admin = callback.from_user.id in config.tg_bot.admin_ids
-    await callback.message.edit_text("💎 Платные рецепты:", reply_markup=get_recipes_keyboard(recipes.all(), user_orders=orders, is_free=False, is_admin=is_admin))
+    await callback.message.edit_text("💎 Платные рецепты:", reply_markup=get_recipes_keyboard(recipes.all(), user_orders=orders, is_free=False, is_admin=is_admin, is_privileged=is_privileged))
 
 @user_router.callback_query(F.data.regexp(r"^recipe_\d+$"))
 async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
@@ -70,12 +74,13 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
     if not recipe: await callback.answer("Рецепт не найден"); return
 
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
-    is_admin = callback.from_user.id in config.tg_bot.admin_ids
+    is_admin = user.is_admin if user else False
+    is_privileged = user.is_privileged if user else False
     order = None
     if user:
         order = await session.scalar(select(Order).where(Order.user_id == user.id, Order.recipe_id == recipe_id, Order.status == 'paid'))
     
-    if order or is_admin:
+    if order or is_admin or is_privileged:
         recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
         recipe_text = recipe_text.replace("<hr>", "---")
         try: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id))
