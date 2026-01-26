@@ -57,7 +57,7 @@ class Order(Base):
     payment_id: Mapped[str | None] = mapped_column(String(128))
     payment_method: Mapped[str | None] = mapped_column(String(20))
 
-engine = create_async_engine(url='sqlite+aiosqlite:///db.sqlite3', echo=True)
+engine = create_async_engine(url='sqlite+aiosqlite:///db.sqlite3', echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 async def async_main():

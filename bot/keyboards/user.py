@@ -79,7 +79,7 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
         recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
         recipe_text = recipe_text.replace("<hr>", "---")
         try: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id))
-        except: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
+        except: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id))
     else:
         await callback.message.edit_text(f"💰 {recipe.title}\n\n{recipe.description}\n\nЦена: {recipe.price}₽", reply_markup=get_payment_keyboard(recipe_id))
 

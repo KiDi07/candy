@@ -2,8 +2,9 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher, types
+from aiogram.client.default import DefaultBotProperties
 from bot.config.config import load_config
-from bot.handlers.user import user_router
+from bot.keyboards.user import user_router
 from bot.handlers.admin import admin_router
 from bot.database.models import async_main, async_session, Recipe, FreeRecipe
 from bot.middlewares.db import DatabaseMiddleware
@@ -27,7 +28,8 @@ async def on_startup(bot: Bot):
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     config = load_config()
-    bot = Bot(token=config.tg_bot.token)
+
+    bot = Bot(token=config.tg_bot.token, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
     dp.update.middleware(DatabaseMiddleware(session_pool=async_session))
     dp.include_router(admin_router)

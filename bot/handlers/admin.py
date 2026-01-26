@@ -56,14 +56,14 @@ async def admin_recipe_view_paid(callback: types.CallbackQuery, session: AsyncSe
     stmt = select(Recipe).where(Recipe.id == recipe_id).options(selectinload(Recipe.content))
     recipe = await session.scalar(stmt)
     text = (f"<b>Платный:</b> {recipe.title}\n<b>Цена:</b> {recipe.price}₽\n<b>Описание:</b> {recipe.description[:100]}...\n\nВыбор поля:")
-    await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=False), parse_mode="HTML")
+    await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=False))
 
 @admin_router.callback_query(F.data.startswith("admin_recipe_view_free_"), F.from_user.id.in_(config.tg_bot.admin_ids))
 async def admin_recipe_view_free(callback: types.CallbackQuery, session: AsyncSession):
     recipe_id = int(callback.data.split("_")[4])
     recipe = await session.get(FreeRecipe, recipe_id)
     text = (f"<b>Бесплатный:</b> {recipe.title}\n<b>Ссылка:</b> {recipe.external_link}\n\nВыбор поля:")
-    await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=True), parse_mode="HTML")
+    await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=True))
 
 @admin_router.callback_query(F.data == "admin_recipe_add", F.from_user.id.in_(config.tg_bot.admin_ids))
 async def add_recipe_start(callback: types.CallbackQuery, state: FSMContext):
