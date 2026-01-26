@@ -78,6 +78,7 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
     
     if order or is_admin:
         recipe_text = recipe.content.recipe_text if recipe.content else "Текст рецепта скоро появится"
+        recipe_text = recipe_text.replace("<hr>", "---")
         try: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
         except: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     else:
@@ -89,7 +90,7 @@ async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession)
     content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     text = content.recipe_text if content else "Текст рецепта скоро появится"
     try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
-    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_video_"))
@@ -98,7 +99,7 @@ async def show_recipe_video(callback: types.CallbackQuery, session: AsyncSession
     content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     video_url = content.video_url if content else "Видео скоро появится"
     try: await callback.message.edit_text(f"🎥 <b>Видео:</b>\n\n{video_url}", reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
-    except: await callback.message.edit_text(f"🎥 Видео:\n\n{video_url}", reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
+    except: await callback.message.edit_text(f"🎥 Видео:\n\n{video_url}", reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_ingredients_"))
@@ -107,7 +108,7 @@ async def show_recipe_ingredients(callback: types.CallbackQuery, session: AsyncS
     content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     text = content.ingredients if content else "Ингредиенты скоро появятся"
     try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
-    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_inventory_"))
@@ -116,7 +117,7 @@ async def show_recipe_inventory(callback: types.CallbackQuery, session: AsyncSes
     content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     text = content.inventory if content else "Инвентарь скоро появится"
     try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
-    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_shops_"))
@@ -125,7 +126,7 @@ async def show_recipe_shops(callback: types.CallbackQuery, session: AsyncSession
     content = await session.scalar(select(RecipeContent).where(RecipeContent.recipe_id == recipe_id))
     text = content.shops if content else "Ссылки скоро появятся"
     try: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
-    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
+    except: await callback.message.edit_text(text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode="HTML")
     await callback.answer()
 
 @user_router.callback_query(F.data.startswith("pay_ukassa_"))
