@@ -67,6 +67,9 @@ def get_main_menu_kb(is_admin=False):
     builder.row(
         InlineKeyboardButton(text="💎 Платные рецепты", callback_data="category_paid")
     )
+    builder.row(
+        InlineKeyboardButton(text="🧮 Калькулятор", callback_data="calc_main")
+    )
     
     if is_admin:
         builder.row(

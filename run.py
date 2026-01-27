@@ -6,9 +6,9 @@ from aiogram.client.default import DefaultBotProperties
 from bot.config.config import load_config
 from bot.keyboards.user import user_router
 from bot.handlers.admin import admin_router
-from bot.database.models import async_main, async_session, Recipe, FreeRecipe
+from bot.handlers.calculator import calc_router
+from bot.database.models import async_main, async_session
 from bot.middlewares.db import DatabaseMiddleware
-from sqlalchemy import select
 
 async def on_startup(bot: Bot):
     # Настройка командного меню
@@ -32,12 +32,18 @@ async def main():
     bot = Bot(token=config.tg_bot.token, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
     dp.update.middleware(DatabaseMiddleware(session_pool=async_session))
+    
+    # Регистрация роутеров
     dp.include_router(admin_router)
     dp.include_router(user_router)
-    await on_startup(bot)
+    dp.include_router(calc_router)
+    
     await bot.delete_webhook(drop_pending_updates=True)
+    await on_startup(bot)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try: asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit): logging.error("Bot stopped!")
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.error("Bot stopped!")

@@ -57,6 +57,25 @@ class Order(Base):
     payment_id: Mapped[str | None] = mapped_column(String(128))
     payment_method: Mapped[str | None] = mapped_column(String(20))
 
+class UserCalculator(Base):
+    __tablename__ = 'user_calculators'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    title: Mapped[str] = mapped_column(String(128))
+    
+    ingredients: Mapped[list["CalculatorIngredient"]] = relationship(back_populates="calculator", cascade="all, delete-orphan")
+
+class CalculatorIngredient(Base):
+    __tablename__ = 'calculator_ingredients'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    calculator_id: Mapped[int] = mapped_column(ForeignKey('user_calculators.id'))
+    name: Mapped[str] = mapped_column(String(128))
+    grams: Mapped[float] = mapped_column(Float)
+    
+    calculator: Mapped["UserCalculator"] = relationship(back_populates="ingredients")
+
 engine = create_async_engine(url='sqlite+aiosqlite:///db.sqlite3', echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
