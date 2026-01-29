@@ -77,3 +77,10 @@ def get_main_menu_kb(is_admin=False):
         )
         
     return builder.as_markup()
+
+def get_subscribe_kb(channel_url):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📢 Подписаться на канал", url=channel_url))
+    builder.row(InlineKeyboardButton(text="✅ Я подписался", callback_data="calc_main"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="catalog"))
+    return builder.as_markup()

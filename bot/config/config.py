@@ -12,9 +12,15 @@ class TgBot:
     token: str
 
 @dataclass
+class Channel:
+    id: str
+    url: str
+
+@dataclass
 class Config:
     tg_bot: TgBot
     yookassa: Yookassa
+    channel: Channel
 
 def load_config():
     load_dotenv()
@@ -25,5 +31,9 @@ def load_config():
         yookassa=Yookassa(
             shop_id=getenv("YOOKASSA_SHOP_ID", "").strip(),
             secret_key=getenv("YOOKASSA_SECRET_KEY", "").strip()
+        ),
+        channel=Channel(
+            id=getenv("CHANNEL_ID", "").strip(),
+            url=getenv("CHANNEL_URL", "").strip()
         )
     )

@@ -42,16 +42,19 @@ async def admin_start(message: types.Message):
 @admin_router.callback_query(F.data == "admin_main")
 async def admin_main_cb(callback: types.CallbackQuery):
     await callback.message.edit_text("👋 Добро пожаловать в админ-панель!", reply_markup=get_admin_main_kb())
+    await callback.answer()
 
 @admin_router.callback_query(F.data == "admin_recipes_list_paid")
 async def admin_recipes_list_paid(callback: types.CallbackQuery, session: AsyncSession):
     recipes = await session.scalars(select(Recipe))
     await callback.message.edit_text("📜 Список платных рецептов:", reply_markup=get_admin_recipes_kb(recipes.all(), is_free=False))
+    await callback.answer()
 
 @admin_router.callback_query(F.data == "admin_recipes_list_free")
 async def admin_recipes_list_free(callback: types.CallbackQuery, session: AsyncSession):
     recipes = await session.scalars(select(FreeRecipe))
     await callback.message.edit_text("🎁 Список бесплатных рецептов:", reply_markup=get_admin_recipes_kb(recipes.all(), is_free=True))
+    await callback.answer()
 
 @admin_router.callback_query(F.data.startswith("admin_recipe_view_paid_"))
 async def admin_recipe_view_paid(callback: types.CallbackQuery, session: AsyncSession):
@@ -60,6 +63,7 @@ async def admin_recipe_view_paid(callback: types.CallbackQuery, session: AsyncSe
     recipe = await session.scalar(stmt)
     text = (f"<b>Платный:</b> {recipe.title}\n<b>Цена:</b> {recipe.price}₽\n<b>Описание:</b> {recipe.description[:100]}...\n\nВыбор поля:")
     await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=False))
+    await callback.answer()
 
 @admin_router.callback_query(F.data.startswith("admin_recipe_view_free_"))
 async def admin_recipe_view_free(callback: types.CallbackQuery, session: AsyncSession):
@@ -67,15 +71,18 @@ async def admin_recipe_view_free(callback: types.CallbackQuery, session: AsyncSe
     recipe = await session.get(FreeRecipe, recipe_id)
     text = (f"<b>Бесплатный:</b> {recipe.title}\n<b>Ссылка:</b> {recipe.external_link}\n\nВыбор поля:")
     await callback.message.edit_text(text, reply_markup=get_recipe_edit_kb(recipe_id, is_free=True))
+    await callback.answer()
 
 @admin_router.callback_query(F.data == "admin_recipe_add")
 async def add_recipe_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AddRecipe.type); await callback.message.edit_text("Тип рецепта:", reply_markup=get_recipe_type_kb())
+    await callback.answer()
 
 @admin_router.callback_query(AddRecipe.type, F.data.startswith("type_"))
 async def add_recipe_type(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(type=callback.data); await state.set_state(AddRecipe.title)
     await callback.message.edit_text("Название:", reply_markup=get_cancel_kb())
+    await callback.answer()
 
 @admin_router.message(AddRecipe.title)
 async def add_title(message: types.Message, state: FSMContext):
@@ -136,12 +143,14 @@ async def edit_paid(callback: types.CallbackQuery, state: FSMContext, session: A
     data = callback.data.replace("edit_paid_", "").rsplit("_", 1)
     await state.update_data(edit_recipe_id=int(data[1]), edit_field=data[0], edit_type='paid')
     await state.set_state(EditRecipe.field_value); await callback.message.edit_text("Введите новое значение:", reply_markup=get_cancel_kb())
+    await callback.answer()
 
 @admin_router.callback_query(F.data.startswith("edit_free_"))
 async def edit_free(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     data = callback.data.replace("edit_free_", "").rsplit("_", 1)
     await state.update_data(edit_recipe_id=int(data[1]), edit_field=data[0], edit_type='free')
     await state.set_state(EditRecipe.field_value); await callback.message.edit_text("Введите новое значение:", reply_markup=get_cancel_kb())
+    await callback.answer()
 
 @admin_router.message(EditRecipe.field_value)
 async def edit_save(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -184,3 +193,4 @@ async def del_free_conf(c: types.CallbackQuery, session: AsyncSession):
 @admin_router.callback_query(F.data == "admin_cancel")
 async def cancel(c: types.CallbackQuery, state: FSMContext):
     await state.clear(); await c.message.edit_text("Отменено", reply_markup=get_admin_main_kb())
+    await c.answer()

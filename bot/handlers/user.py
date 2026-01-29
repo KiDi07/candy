@@ -45,11 +45,13 @@ async def show_catalog(callback: types.CallbackQuery, session: AsyncSession):
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     is_admin = user.is_admin if user else False
     await callback.message.edit_text("Выбери категорию:", reply_markup=get_main_menu_kb(is_admin=is_admin))
+    await callback.answer()
 
 @user_router.callback_query(F.data == "category_free")
 async def show_free_recipes(callback: types.CallbackQuery, session: AsyncSession):
     recipes = await session.scalars(select(FreeRecipe))
     await callback.message.edit_text("🎁 Бесплатные рецепты:", reply_markup=get_recipes_keyboard(recipes.all(), is_free=True))
+    await callback.answer()
 
 @user_router.callback_query(F.data == "category_paid")
 async def show_paid_recipes(callback: types.CallbackQuery, session: AsyncSession):
@@ -64,6 +66,7 @@ async def show_paid_recipes(callback: types.CallbackQuery, session: AsyncSession
         is_privileged = user.is_privileged
     
     await callback.message.edit_text("💎 Платные рецепты:", reply_markup=get_recipes_keyboard(recipes.all(), user_orders=orders, is_free=False, is_admin=is_admin, is_privileged=is_privileged))
+    await callback.answer()
 
 @user_router.callback_query(F.data.regexp(r"^recipe_\d+$"))
 async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
@@ -87,6 +90,7 @@ async def show_recipe(callback: types.CallbackQuery, session: AsyncSession):
         except: await callback.message.edit_text(recipe_text, reply_markup=get_recipe_sections_kb(recipe_id), parse_mode=None)
     else:
         await callback.message.edit_text(f"💰 {recipe.title}\n\n{recipe.description}\n\nЦена: {recipe.price}₽", reply_markup=get_payment_keyboard(recipe_id))
+    await callback.answer()
 
 @user_router.callback_query(F.data.startswith("recipe_text_"))
 async def show_recipe_text(callback: types.CallbackQuery, session: AsyncSession):

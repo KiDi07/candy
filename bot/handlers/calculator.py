@@ -1,4 +1,5 @@
-from aiogram import Router, types, F
+from aiogram import Router, types, F, Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,8 +8,20 @@ from sqlalchemy.orm import selectinload
 from bot.database.models import User, UserCalculator, CalculatorIngredient
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
+from bot.config.config import load_config
+from bot.keyboards.inline import get_subscribe_kb
 
 calc_router = Router()
+config = load_config()
+
+async def check_subscription(bot, user_id):
+    try:
+        member = await bot.get_chat_member(chat_id=config.channel.id, user_id=user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception:
+        return False
+    return False
 
 class CalculatorStates(StatesGroup):
     title = State()
@@ -41,15 +54,34 @@ def get_calc_delete_confirm_kb(calc_id):
     return builder.as_markup()
 
 @calc_router.callback_query(F.data == "calc_main")
-async def calc_main(callback: types.CallbackQuery, session: AsyncSession):
+async def calc_main(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    # Проверка подписки
+    is_subscribed = await check_subscription(bot, callback.from_user.id)
+    
+    # Администраторы проходят без проверки
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
+    if not is_subscribed and not user.is_admin:
+        try:
+            await callback.message.edit_text(
+                "⚠️ Для доступа к калькулятору необходимо подписаться на наш канал!",
+                reply_markup=get_subscribe_kb(config.channel.url)
+            )
+        except TelegramBadRequest:
+            # Если сообщение уже такое же, просто отвечаем алертом
+            await callback.answer("⚠️ Вы всё еще не подписаны на канал!", show_alert=True)
+            return
+        await callback.answer()
+        return
+
     calculators = (await session.scalars(select(UserCalculator).where(UserCalculator.user_id == user.id))).all()
     await callback.message.edit_text("🧮 Ваши калькуляторы:", reply_markup=get_calc_main_kb(calculators))
+    await callback.answer()
 
 @calc_router.callback_query(F.data == "calc_add")
 async def calc_add_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CalculatorStates.title)
     await callback.message.edit_text("Введите название рецепта для калькулятора:")
+    await callback.answer()
 
 @calc_router.message(CalculatorStates.title)
 async def calc_add_title(message: types.Message, state: FSMContext):
@@ -86,7 +118,7 @@ async def calc_add_ingredient(message: types.Message, state: FSMContext):
         await message.answer("Количество должно быть числом!")
 
 @calc_router.callback_query(F.data == "calc_add_done")
-async def calc_add_finish(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+async def calc_add_finish(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
     data = await state.get_data()
     if not data.get('ingredients'):
         await callback.answer("Добавьте хотя бы один ингредиент!", show_alert=True)
@@ -103,7 +135,7 @@ async def calc_add_finish(callback: types.CallbackQuery, state: FSMContext, sess
     await session.commit()
     await state.clear()
     await callback.answer("Рецепт сохранен!")
-    await calc_main(callback, session)
+    await calc_main(callback, session, bot)
 
 @calc_router.callback_query(F.data.startswith("calc_view_"))
 async def calc_view(callback: types.CallbackQuery, session: AsyncSession):
@@ -116,6 +148,7 @@ async def calc_view(callback: types.CallbackQuery, session: AsyncSession):
     text += f"\n\n<b>Общая масса: {total}г</b>"
     
     await callback.message.edit_text(text, reply_markup=get_calc_view_kb(calc_id))
+    await callback.answer()
 
 @calc_router.callback_query(F.data.startswith("calc_target_"))
 async def calc_target_start(callback: types.CallbackQuery, state: FSMContext):
@@ -123,6 +156,7 @@ async def calc_target_start(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(calc_id=calc_id)
     await state.set_state(CalculatorStates.target_mass)
     await callback.message.edit_text("Введите желаемую общую массу блюда (в граммах):")
+    await callback.answer()
 
 @calc_router.message(CalculatorStates.target_mass)
 async def calc_recalculate(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -160,11 +194,12 @@ async def calc_delete_ask(callback: types.CallbackQuery, session: AsyncSession):
         f"Вы уверены, что хотите удалить калькулятор «{calc.title}»?",
         reply_markup=get_calc_delete_confirm_kb(calc_id)
     )
+    await callback.answer()
 
 @calc_router.callback_query(F.data.startswith("calc_del_conf_"))
-async def calc_delete_conf(callback: types.CallbackQuery, session: AsyncSession):
+async def calc_delete_conf(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
     calc_id = int(callback.data.split("_")[3])
     await session.execute(delete(UserCalculator).where(UserCalculator.id == calc_id))
     await session.commit()
     await callback.answer("Удалено")
-    await calc_main(callback, session)
+    await calc_main(callback, session, bot)
