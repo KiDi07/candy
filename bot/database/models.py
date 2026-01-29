@@ -70,7 +70,7 @@ class CalculatorIngredient(Base):
     __tablename__ = 'calculator_ingredients'
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    calculator_id: Mapped[int] = mapped_column(ForeignKey('user_calculators.id'))
+    calculator_id: Mapped[int] = mapped_column(ForeignKey('user_calculators.id', ondelete='CASCADE'))
     name: Mapped[str] = mapped_column(String(128))
     grams: Mapped[float] = mapped_column(Float)
     

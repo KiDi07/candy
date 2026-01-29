@@ -62,8 +62,17 @@ async def calc_main(callback: types.CallbackQuery, session: AsyncSession, bot: B
     user = await session.scalar(select(User).where(User.tg_id == callback.from_user.id))
     if not is_subscribed and not user.is_admin:
         try:
+            promo_text = (
+                "🧮 <b>Умный калькулятор рецептов</b>\n\n"
+                "Хотите больше не мучиться с пересчетом ингредиентов на глаз? Наш калькулятор сделает всё за вас!\n\n"
+                "✅ Сохраняйте свои любимые рецепты\n"
+                "✅ Пересчитывайте пропорции под любую форму или вес за одну секунду\n"
+                "✅ Всегда идеальный результат без ошибок в расчетах\n\n"
+                "⚠️ <b>Доступ к калькулятору открыт только для подписчиков нашего канала.</b>\n"
+                "Подпишитесь, чтобы пользоваться этим и другими полезными инструментами!"
+            )
             await callback.message.edit_text(
-                "⚠️ Для доступа к калькулятору необходимо подписаться на наш канал!",
+                promo_text,
                 reply_markup=get_subscribe_kb(config.channel.url)
             )
         except TelegramBadRequest:
@@ -74,7 +83,20 @@ async def calc_main(callback: types.CallbackQuery, session: AsyncSession, bot: B
         return
 
     calculators = (await session.scalars(select(UserCalculator).where(UserCalculator.user_id == user.id))).all()
-    await callback.message.edit_text("🧮 Ваши калькуляторы:", reply_markup=get_calc_main_kb(calculators))
+    
+    instruction = (
+        "🧮 <b>Калькулятор рецептов</b>\n\n"
+        "Здесь вы можете сохранять свои рецепты и пересчитывать вес ингредиентов под любой нужный вам вес блюда.\n\n"
+        "<b>Как пользоваться:</b>\n"
+        "1. Нажмите <b>«➕ Добавить рецепт»</b> и введите название.\n"
+        "2. Отправляйте боту ингредиенты по одному в формате:\n"
+        "<code>Название вес</code> (например: <code>Мука 500</code>).\n"
+        "3. Когда добавите всё необходимое, нажмите кнопку <b>«✅ Завершить»</b>.\n"
+        "4. Выберите созданный рецепт из списка ниже и нажмите <b>«⚖️ Пересчитать»</b>, чтобы получить новые пропорции под нужный вам итоговый вес.\n\n"
+        "<b>Ваши сохраненные калькуляторы:</b>"
+    )
+    
+    await callback.message.edit_text(instruction, reply_markup=get_calc_main_kb(calculators))
     await callback.answer()
 
 @calc_router.callback_query(F.data == "calc_add")
@@ -199,7 +221,12 @@ async def calc_delete_ask(callback: types.CallbackQuery, session: AsyncSession):
 @calc_router.callback_query(F.data.startswith("calc_del_conf_"))
 async def calc_delete_conf(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
     calc_id = int(callback.data.split("_")[3])
+    
+    # Сначала удаляем ингредиенты явно для надежности (SQLite иногда требует ON DELETE CASCADE ручной настройки)
+    await session.execute(delete(CalculatorIngredient).where(CalculatorIngredient.calculator_id == calc_id))
+    # Затем удаляем сам калькулятор
     await session.execute(delete(UserCalculator).where(UserCalculator.id == calc_id))
+    
     await session.commit()
     await callback.answer("Удалено")
     await calc_main(callback, session, bot)
