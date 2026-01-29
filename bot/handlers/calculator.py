@@ -14,6 +14,18 @@ from bot.keyboards.inline import get_subscribe_kb
 calc_router = Router()
 config = load_config()
 
+SHP_TEXT = (
+    "\n\n💡 <b>Шпаргалка:</b>\n"
+    "• 1 яйцо С0 ≈ 60г\n"
+    "• 1 яйцо С1 ≈ 55г\n"
+    "• 1 яйцо С2 ≈ 45г\n"
+    "• 1 ч.л. соли ≈ 7г\n"
+    "• 1 ч.л. разрыхлителя/соды ≈ 5г\n"
+    "• Щепотка соли ≈ 1г\n"
+    "• Стакан сахара/молока/кефира ≈ 200г\n"
+    "• Стакан муки ≈ 160г"
+)
+
 async def check_subscription(bot, user_id):
     try:
         member = await bot.get_chat_member(chat_id=config.channel.id, user_id=user_id)
@@ -112,7 +124,7 @@ async def calc_add_title(message: types.Message, state: FSMContext):
     await message.answer(
         "Теперь добавляйте ингредиенты в формате:\n"
         "<code>Название количество</code> (например: <code>Мука 500</code>)\n\n"
-        "Когда закончите, нажмите кнопку «Завершить»",
+        "Когда закончите, нажмите кнопку «Завершить»" + SHP_TEXT,
         reply_markup=InlineKeyboardBuilder().row(InlineKeyboardButton(text="✅ Завершить", callback_data="calc_add_done")).as_markup()
     )
 
@@ -133,7 +145,7 @@ async def calc_add_ingredient(message: types.Message, state: FSMContext):
         
         current_list = "\n".join([f"• {i['name']}: {i['grams']}г" for i in ingredients])
         await message.answer(
-            f"Добавлено!\n\nТекущий список:\n{current_list}\n\nДобавьте следующий или нажмите «Завершить»",
+            f"Добавлено!\n\nТекущий список:\n{current_list}\n\nДобавьте следующий или нажмите «Завершить»" + SHP_TEXT,
             reply_markup=InlineKeyboardBuilder().row(InlineKeyboardButton(text="✅ Завершить", callback_data="calc_add_done")).as_markup()
         )
     except ValueError:
