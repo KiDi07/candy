@@ -6,6 +6,7 @@ def get_admin_main_kb():
     builder.row(InlineKeyboardButton(text="📜 Платные рецепты", callback_data="admin_recipes_list_paid"))
     builder.row(InlineKeyboardButton(text="🎁 Бесплатные рецепты", callback_data="admin_recipes_list_free"))
     builder.row(InlineKeyboardButton(text="➕ Добавить рецепт", callback_data="admin_recipe_add"))
+    builder.row(InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_stats_users"))
     return builder.as_markup()
 
 def get_admin_recipes_kb(recipes, is_free=False):

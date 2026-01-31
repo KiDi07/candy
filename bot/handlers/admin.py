@@ -4,9 +4,9 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
-from bot.database.models import Recipe, RecipeContent, FreeRecipe
+from bot.database.models import Recipe, RecipeContent, FreeRecipe, User
 from bot.keyboards.admin_kb import (
     get_admin_main_kb, get_admin_recipes_kb, 
     get_recipe_edit_kb, get_cancel_kb,
@@ -42,6 +42,12 @@ async def admin_start(message: types.Message):
 @admin_router.callback_query(F.data == "admin_main")
 async def admin_main_cb(callback: types.CallbackQuery):
     await callback.message.edit_text("👋 Добро пожаловать в админ-панель!", reply_markup=get_admin_main_kb())
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "admin_stats_users")
+async def admin_stats_users_cb(callback: types.CallbackQuery, session: AsyncSession):
+    count = await session.scalar(select(func.count()).select_from(User))
+    await callback.message.edit_text(f"📊 Статистика пользователей\n\nВсего пользователей в базе: <b>{count}</b>", reply_markup=get_admin_main_kb())
     await callback.answer()
 
 @admin_router.callback_query(F.data == "admin_recipes_list_paid")
