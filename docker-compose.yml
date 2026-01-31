@@ -1,0 +1,18 @@
+services:
+  bot:
+    build: .
+    container_name: candy_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      # Пробрасываем всю папку data для логов или других файлов
+      - ./data:/app/data
+      # Пробрасываем файл базы данных. 
+      # ВАЖНО: файл должен существовать на хосте перед запуском, иначе Docker создаст папку.
+      - ./db.sqlite3:/app/db.sqlite3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
